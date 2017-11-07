@@ -1,0 +1,9 @@
+[package]
+name = "dipper"
+version = "0.1.0"
+authors = ["not-inept <mason@notinept.me>"]
+
+[dependencies]
+serenity = "0.4"
+config = "0.6"
+coinnect = "*"

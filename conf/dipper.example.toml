@@ -1,0 +1,23 @@
+[discord]
+user_id="<USER ID FOR YOUR BOT TO USE>"
+token="<DISCORD API BOT TOKEN>"
+
+[poloniex]
+name="<API NAME (for your purposes)>"
+api_key="<API KEY>"
+api_secret="<API SECRET>"
+
+[bitstamp]
+name="<API NAME (for your purposes)>"
+api_key="<API KEY>"
+api_secret="<API SECRET>"
+customer_id="ovol8671"
+
+[kraken]
+name="<API NAME (for your purposes)>"
+api_key="<API KEY>"
+api_secret="<API SECRET>"
+
+# [bittrex]
+# api_key=""
+# api_secret=""
