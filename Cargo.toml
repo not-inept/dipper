@@ -7,3 +7,5 @@ authors = ["not-inept <mason@notinept.me>"]
 serenity = "0.4"
 config = "0.6"
 coinnect = "*"
+bson = "0.10.0"
+mongodb = "0.3.7"

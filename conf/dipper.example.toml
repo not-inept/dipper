@@ -1,3 +1,9 @@
+[database]
+type="<DATABASE TYPE ('mongodb',)>"
+url="<DATABASE HOST LOCATION"
+user="<DATABASE USER NAME>"
+password="<DATABASE PASSWORD>"
+
 [discord]
 user_id="<USER ID FOR YOUR BOT TO USE>"
 token="<DISCORD API BOT TOKEN>"

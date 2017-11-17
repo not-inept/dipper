@@ -41,23 +41,26 @@
 //     let _ = client.start();
 // }
 
-
+#[macro_use(bson, doc)]
+extern crate bson;
+extern crate mongodb;
 extern crate coinnect;
 extern crate config;
 
-// Kraken
-use coinnect::kraken::KrakenCreds;
-use coinnect::kraken::api::KrakenApi;
+// Database Shim
+mod database;
+use database::{DatabaseType, DatabaseConnInfo, Database};
+
 // Poloniex
 use coinnect::poloniex::credentials::PoloniexCreds;
 use coinnect::poloniex::api::PoloniexApi;
+
 //// config
 use std::collections::HashMap;
 use config::File;
 
 enum ExApi {
     Poloniex(PoloniexApi),
-    Kraken(KrakenApi)
 }
 
 fn get_snapshot(exchanges : Vec<ExApi>) {
@@ -66,8 +69,7 @@ fn get_snapshot(exchanges : Vec<ExApi>) {
         match ex {
             ExApi::Poloniex(mut p) => {
                 let ticker = p.return_ticker().unwrap();
-            },
-            ExApi::Kraken(_k) => {
+                println!("{:?}", ticker);
             }
         }
     }
@@ -80,12 +82,13 @@ fn main() {
         .merge(File::with_name("conf/dipper.toml")).unwrap();
 
     let settings = settings_raw.deserialize::<HashMap<String, HashMap<String, String>>>().unwrap();
-    println!("{:?}", settings);
 
-    let kraken_creds = KrakenCreds::new(
-        &settings["kraken"]["name"],
-        &settings["kraken"]["api_key"],
-        &settings["kraken"]["api_secret"]
+    let db = Database::new(
+        DatabaseType::Mongodb,
+        DatabaseConnInfo::new(
+            settings["database"]["url"].clone(),
+            settings["database"]["port"].parse().unwrap_or(27017)
+        )
     );
 
     let poloniex_creds = PoloniexCreds::new(
@@ -94,30 +97,12 @@ fn main() {
         &settings["poloniex"]["api_secret"]
     );
 
-    let mut kraken_api = ExApi::Kraken(KrakenApi::new(kraken_creds).unwrap());
-    let mut poloniex_api = ExApi::Poloniex(PoloniexApi::new(poloniex_creds).unwrap());
+    
+    let poloniex_ex = ExApi::Poloniex(PoloniexApi::new(poloniex_creds).unwrap());
 
-    let exchanges = vec![kraken_api, poloniex_api];
+    let exchanges = vec![poloniex_ex];
 
     get_snapshot(exchanges);
-    // We create a Coinnect Generic API
-    // Since Kraken does not need customer_id field, we set it to None
-    // let kraken_creds = KrakenCreds::new("my_optionnal_name", "api_key", "api_secret");
-    // let mut my_api = Coinnect::new(Kraken, my_creds).unwrap();
-    //ovol8671
-    // let ticker = my_api.ticker(ETC_BTC);
-    //
-    // println!("ETC_BTC last trade price is {}.",
-    //          ticker.unwrap().last_trade_price);
 
-     // Let's look at the ticker!
 
-    //  for coin in list_coins {
-    //      // please visit Poloniex API documentation to know how the data is returned
-    //      // or look at the coinnect documentation
-    //      let name = coin.0;
-    //      let price = coin.1.as_object().unwrap().get("last").unwrap().as_str().unwrap();
-     //
-    //      println!("Coin {} has price : {}", name, price);
-    //  }
 }
