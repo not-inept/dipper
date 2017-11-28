@@ -1,4 +1,6 @@
 /target/
+/parser/target/
+/parser/data/
 **/*.rs.bk
 dipper.toml
 /data/

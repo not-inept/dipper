@@ -11,4 +11,4 @@ bson = "0.10.0"
 mongodb = "0.3.7"
 serde_json = "*"
 chrono = "0.4"
-
+parser = { path ="./parser" }

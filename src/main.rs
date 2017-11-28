@@ -1,72 +1,59 @@
-// #[macro_use] extern crate serenity;
-//
-// extern crate config;
-// extern crate coinnect;
-
-// use serenity::client::Client;
-// use serenity::framework::standard::StandardFramework;
-// use serenity::prelude::*;
-// use serenity::model::*;
-// use serenity::utils::*;
-// use serenity::model::{ChannelType, GuildId};
-// use std::env;
-//
-// struct Handler;
-//
-// fn handle_primary_function(type : String, msg : String, channel_id :  ChannelId) {
-//     println!("{}", msg);
-// }
-//
-// impl EventHandler for Handler {
-//     fn on_message(&self, context : Context, msg: serenity::model::Message) {
-//         let content_str : &str = &msg.content;
-//         if content_str[0] == "!" {
-//             handle_primary_function(content_str[0], content_str[1..]);
-//             if let Err(why) = msg.channel_id.say("Pong!") {
-//                 println!("Error sending message: {:?}", why);
-//             }
-//         }
-//     }
-//
-//     fn on_ready(&self, context : Context, ready: Ready) {
-//         let res = context.edit_profile(|profile| {
-//             profile.username("ShirleyAnnBotson")
-//         });
-//     }
-// }
-//
-// fn main() {
-//     // Login with a bot token
-//     let mut client = Client::new(&discord["token"], Handler);
-//     let _ = client.start();
-// }
-
-#[macro_use(bson, doc)]
-extern crate bson;
+#[macro_use] extern crate serenity;
+#[macro_use(bson, doc)] extern crate bson;
 extern crate mongodb;
 extern crate coinnect;
 extern crate config;
 extern crate serde_json;
 extern crate chrono;
 
+// Discord
+use serenity::client::Client as SerenityClient;
+use serenity::framework::standard::StandardFramework;
+use serenity::prelude::*;
+use serenity::model::*;
+use serenity::utils::*;
+use serenity::model::{ChannelType, GuildId};
+
+// Expression Parsing
+extern crate parser;
+use std::collections::HashSet;
+
+// Snapshot 'Photographer' Thread
+use std::{time, thread};
+
 // Database
 use mongodb::{Client, ThreadedClient};
 use mongodb::db::ThreadedDatabase;
 use chrono::Local;
 
-
 // Poloniex
 use coinnect::poloniex::credentials::PoloniexCreds;
 use coinnect::poloniex::api::PoloniexApi;
 
-//// config
+// config
 use std::collections::HashMap;
 use config::File;
 
+// Exchange Structs
+#[derive(Debug)]
 enum ExApi {
     Poloniex(PoloniexApi),
 }
 
+#[derive(Debug, Clone)]
+enum ExType {
+    Poloniex
+}
+
+#[derive(Debug, Clone)]
+struct ExCreds {
+    ex_type : ExType,
+    name : String,
+    key : String,
+    secret : String
+}
+
+// Data struct
 #[derive(Debug)]
 struct MarketData {
     last : f64,
@@ -80,8 +67,9 @@ struct MarketData {
     low24hr : f64,
 }
 
-fn parse_polo_ticker(ticker : serde_json::Map<std::string::String, serde_json::Value>
-) -> HashMap<String, HashMap<String, MarketData>> {
+// Data fetching/storing util functions
+fn parse_polo_ticker(ticker : serde_json::Map<std::string::String, serde_json::Value>)
+-> HashMap<String, HashMap<String, MarketData>> {
     let mut data : HashMap<String, HashMap<String, MarketData>> = HashMap::new();
     for (key, value) in ticker {
         let s : Vec<&str> = key.split("_").collect();
@@ -105,10 +93,10 @@ fn parse_polo_ticker(ticker : serde_json::Map<std::string::String, serde_json::V
     return data;
 }
 
-fn get_snapshot(exchanges : Vec<ExApi>)
+fn get_snapshot(exchange_creds : Vec<ExCreds>) 
 -> HashMap<String, HashMap<String, HashMap<String, MarketData> > > {
+    let exchanges = get_exchanges(exchange_creds);
     let mut ex_data : HashMap<String, HashMap<String, HashMap<String, MarketData> > > = HashMap::new();
-
     for ex in exchanges {
         match ex {
             ExApi::Poloniex(mut p) => {
@@ -121,48 +109,178 @@ fn get_snapshot(exchanges : Vec<ExApi>)
     return ex_data;
 }
 
-fn store_snapshot(db_client : mongodb::Client, exchanges : Vec<ExApi>) {
-    let snapshot = get_snapshot(exchanges);
+fn get_exchanges(exchange_creds : Vec<ExCreds>) -> Vec<ExApi> {
+    let mut exchanges = Vec::new();
+    for creds in exchange_creds {
+        match creds.ex_type {
+            ExType::Poloniex => {
+                let poloniex_creds = PoloniexCreds::new(
+                    &creds.name,
+                    &creds.key,
+                    &creds.secret
+                );
+                let poloniex_ex = ExApi::Poloniex(PoloniexApi::new(poloniex_creds).unwrap());
+                exchanges.push(poloniex_ex);
+            }
+        }
+    }
+    return exchanges;
+}
+
+fn store_snapshot(db_client : mongodb::Client, exchange_creds : Vec<ExCreds>) {
+    let snapshot = get_snapshot(exchange_creds);
+    let date = Local::now();
+    let time = date.timestamp();
     let coin_db = db_client.db("coins");
     for (_, ex_data) in snapshot {
         for (coin, market_data) in ex_data {
             let coll = coin_db.collection(&coin);
-            let date = Local::now();
-            let doc = doc! {
-                "time" : date.timestamp(),
-                "data" : market_data
-            };
+            for (market, data) in market_data {
+                let doc = doc! {
+                    "time" : time,
+                    "coin" : coin.clone(),
+                    "market" : market,
+                    "last" : data.last,
+                    "lowest_ask" : data.lowest_ask,
+                    "highest_bid" : data.highest_bid,
+                    "percent_change" : data.percent_change,
+                    "base_volume" : data.base_volume,
+                    "quote_volume" : data.quote_volume,
+                    "is_frozen" : data.is_frozen,
+                    "high24hr" : data.high24hr,
+                    "low24hr" : data.low24hr
+                };
+                coll.insert_one(doc.clone(), None)
+                    .ok().expect("Failed to insert document.");
+            }
 
-            coll.insert_one(doc.clone(), None)
-            .ok().expect("Failed to insert document.");
         }
     }
 }
 
+// Discord API handler and helpers
+struct Handler {
+    name : String,
+    ex_creds : Vec<ExCreds>,
+    db_client : Client
+}
+impl Handler {
+    pub fn new(name : String, db_client : Client, ex_creds : Vec<ExCreds>) -> Handler {
+        return Handler {
+            name: name,
+            ex_creds: ex_creds,
+            db_client: db_client.clone()
+        }
+    }
+}
+impl EventHandler for Handler {
+    fn on_message(&self, context : Context, msg: serenity::model::Message) {
+        let content_str : &str = &msg.content;
+        let mut content_string : String = msg.content.clone();
+        if content_str.starts_with("$") {
+            content_string.drain(..1);
+            let snapshot = get_snapshot(self.ex_creds.clone());
+            let split = content_string.split(" ");
+            for exp in split {
+                let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
+                let vars = exp_parser.vars(); 
+                for (exchange,exchange_data) in &snapshot {
+                    let mut coin_vals = HashMap::new();
+                    let mut market_sets = Vec::new();
+                    for (coin, coin_data) in exchange_data {
+                        if vars.contains(coin) {
+                            coin_vals.insert(coin.clone(), coin_data);
+                            let mut my_markets = HashSet::new();
+                            for (market, market_data) in coin_data {
+                                my_markets.insert(market);
+                            }
+                            market_sets.push(my_markets);
+
+                        }
+                    }
+                    let mut valid_markets = market_sets.pop().unwrap();
+                    for market_set in market_sets {
+                        for market in valid_markets.clone() {
+                            if !market_set.contains(market) {
+                                valid_markets.remove(market);
+                            }
+                        }
+                    }
+                    let mut result_message = format!("Results for {}:", exp.to_uppercase());
+                    for market in valid_markets {
+                        for (coin, coin_datum) in &coin_vals {
+                            let data = coin_datum.get(market).unwrap();
+                            exp_parser.bind(coin.clone(), data.last);
+                        }
+                        let result = exp_parser.eval();
+                        result_message += &format!("\n\t{}: {}", market, result);
+                    }
+                    if let Err(why) = msg.channel_id.say(result_message) {
+                        println!("Error sending message: {:?}", why);
+                    }
+                }
+            }
+
+        } else if content_str.starts_with("!") {
+            content_string.drain(..1);
+            let split = content_string.split(" ");
+            /*
+                !! = show all values
+                !last (same as $)
+                !lowest_ask exp...
+                !highest_bid exp...
+                
+            */
+
+        }
+    }
+
+    fn on_ready(&self, context : Context, ready: Ready) {
+        let res = context.edit_profile(|profile| {
+            profile.username(&self.name)
+        });
+    }
+}
+
+// Dipper
 fn main() {
     // Load settings file with api keys
     let mut settings_raw = config::Config::default();
     settings_raw
         .merge(File::with_name("conf/dipper.toml")).unwrap();
-
     let settings = settings_raw.deserialize::<HashMap<String, HashMap<String, String>>>().unwrap();
 
+    // Create DB Client
     let db_client = Client::connect(
         &settings["database"]["url"],
         settings["database"]["port"].parse().unwrap_or(27017)
     ).expect("Failed to initialize standalone client.");
 
-    let poloniex_creds = PoloniexCreds::new(
-        &settings["poloniex"]["name"],
-        &settings["poloniex"]["api_key"],
-        &settings["poloniex"]["api_secret"]
-    );
+    // Populate cred struct for Poloniex
+    let polo_cred_data = ExCreds {
+        ex_type: ExType::Poloniex,
+        name: settings["poloniex"]["name"].clone(),
+        key: settings["poloniex"]["api_key"].clone(),
+        secret: settings["poloniex"]["api_secret"].clone()
+    };
+    let exchange_creds = vec![polo_cred_data];
 
-    let poloniex_ex = ExApi::Poloniex(PoloniexApi::new(poloniex_creds).unwrap());
+    // Initilize 'Photographer' thread for caputring snapshots
+    let autoshot_exchange_creds = exchange_creds.clone();
+    let autoshot_db_client = db_client.clone();
+    let snapshot_frequency = time::Duration::from_secs(60);
+    thread::spawn(move || {
+        loop {
+            store_snapshot(autoshot_db_client.clone(), autoshot_exchange_creds.clone());
+            thread::sleep(snapshot_frequency);
+        }
+    });
 
-    let exchanges = vec![poloniex_ex];
-
-    // get_snapshot(exchanges);
-    store_snapshot(db_client, exchanges);
-
+    // Create & start Discord Client
+    let discord_exchange_creds = exchange_creds.clone();
+    let discord_db_client = db_client.clone();
+    let handler = Handler::new(String::from("Dipper"), discord_db_client, discord_exchange_creds);
+    let mut client = SerenityClient::new(&settings["discord"]["token"], handler);
+    let _ = client.start();
+    
 }
