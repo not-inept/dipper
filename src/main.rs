@@ -1,4 +1,5 @@
-#[macro_use] extern crate serenity;
+// #[macro_use]
+extern crate serenity;
 #[macro_use(bson, doc)] extern crate bson;
 extern crate mongodb;
 extern crate coinnect;
@@ -8,11 +9,11 @@ extern crate chrono;
 
 // Discord
 use serenity::client::Client as SerenityClient;
-use serenity::framework::standard::StandardFramework;
+//use serenity::framework::standard::StandardFramework;
 use serenity::prelude::*;
 use serenity::model::*;
-use serenity::utils::*;
-use serenity::model::{ChannelType, GuildId};
+//use serenity::utils::*;
+//use serenity::model::{ChannelType, GuildId};
 
 // Expression Parsing
 extern crate parser;
@@ -52,7 +53,60 @@ struct ExCreds {
     key : String,
     secret : String
 }
-
+#[derive(Debug)]
+enum MarketPropertyType {
+    Last,
+    LowestAsk,
+    HighestBid,
+    PercentChange,
+    BaseVolume,
+    QuoteVolume,
+    IsFrozen,
+    High24hr,
+    Low24hr,
+}
+#[derive(Debug)]
+struct MarketProperty {
+    property_type: MarketPropertyType,
+    var_string: String,
+    coin: String
+}
+impl MarketProperty {
+    fn new(v: String, c: String, p : String) -> MarketProperty {
+        let p_type = match p.to_lowercase().as_str() {
+            "lowest_ask" => MarketPropertyType::LowestAsk,
+            "highest_bid" => MarketPropertyType::HighestBid,
+            "percent_change" => MarketPropertyType::PercentChange,
+            "base_volume" => MarketPropertyType::BaseVolume,
+            "quote_volume" => MarketPropertyType::QuoteVolume,
+            "is_frozen" => MarketPropertyType::IsFrozen,
+            "high24hr" => MarketPropertyType::High24hr,
+            "low24hr" => MarketPropertyType::Low24hr,
+            _ => MarketPropertyType::Last
+        };
+        return MarketProperty {
+            property_type: p_type,
+            var_string: v,
+            coin: c
+        }
+    }
+    fn val (&self, m : &MarketData) -> f64 {
+        match self.property_type {
+            MarketPropertyType::Last => m.last,
+            MarketPropertyType::LowestAsk => m.lowest_ask,
+            MarketPropertyType::HighestBid => m.highest_bid,
+            MarketPropertyType::PercentChange => m.percent_change,
+            MarketPropertyType::BaseVolume => m.base_volume,
+            MarketPropertyType::QuoteVolume => m.quote_volume,
+            MarketPropertyType::IsFrozen => m.is_frozen as f64,
+            MarketPropertyType::High24hr => m.high24hr,
+            MarketPropertyType::Low24hr => m.low24hr,
+        }
+    }
+    fn var (&self) -> String {
+        self.var_string.clone()
+    }
+}
 // Data struct
 #[derive(Debug)]
 struct MarketData {
@@ -162,19 +216,19 @@ fn store_snapshot(db_client : mongodb::Client, exchange_creds : Vec<ExCreds>) {
 struct Handler {
     name : String,
     ex_creds : Vec<ExCreds>,
-    db_client : Client
+    //db_client : Client
 }
 impl Handler {
-    pub fn new(name : String, db_client : Client, ex_creds : Vec<ExCreds>) -> Handler {
+    pub fn new(name : String, _db_client : Client, ex_creds : Vec<ExCreds>) -> Handler {
         return Handler {
             name: name,
             ex_creds: ex_creds,
-            db_client: db_client.clone()
+            //db_client: db_client.clone()
         }
     }
 }
 impl EventHandler for Handler {
-    fn on_message(&self, context : Context, msg: serenity::model::Message) {
+    fn on_message(&self, _context : Context, msg: serenity::model::Message) {
         let content_str : &str = &msg.content;
         let mut content_string : String = msg.content.clone();
         if content_str.starts_with("$") {
@@ -184,14 +238,32 @@ impl EventHandler for Handler {
             for exp in split {
                 let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
                 let vars = exp_parser.vars(); 
-                for (exchange,exchange_data) in &snapshot {
+                // get coin values from vars (may be coin.property)
+                let mut coin_vars = HashMap::new();
+                let mut copy_vars = vars.clone();
+
+                for v in copy_vars {
+                    let v_clone = v.clone();
+                    let var_split : Vec<&str> = v_clone.split(".").collect();
+                    println!("{:?}", var_split);
+                    let coin = String::from(var_split[0]).clone();
+                    let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
+                    if var_split.len() == 1 {
+                        this_coin_vec.push(MarketProperty::new(v.clone(), coin, String::from("last")));
+                    } else if var_split.len() == 2 {
+                        println!("Found two!");
+                        this_coin_vec.push(MarketProperty::new(v.clone(), coin, String::from(var_split[1])));
+                    }
+                }
+                for (_,exchange_data) in &snapshot {
                     let mut coin_vals = HashMap::new();
                     let mut market_sets = Vec::new();
                     for (coin, coin_data) in exchange_data {
-                        if vars.contains(coin) {
+                        if coin_vars.contains_key(coin) {
+                            println!("Coin was var: {}",coin);
                             coin_vals.insert(coin.clone(), coin_data);
                             let mut my_markets = HashSet::new();
-                            for (market, market_data) in coin_data {
+                            for (market, _) in coin_data {
                                 my_markets.insert(market);
                             }
                             market_sets.push(my_markets);
@@ -210,7 +282,9 @@ impl EventHandler for Handler {
                     for market in valid_markets {
                         for (coin, coin_datum) in &coin_vals {
                             let data = coin_datum.get(market).unwrap();
-                            exp_parser.bind(coin.clone(), data.last);
+                            for coin_var in &coin_vars[coin] {
+                                exp_parser.bind(coin_var.var(), coin_var.val(data));
+                            }
                         }
                         let result = exp_parser.eval();
                         result_message += &format!("\n\t{}: {}", market, result);
@@ -223,7 +297,8 @@ impl EventHandler for Handler {
 
         } else if content_str.starts_with("!") {
             content_string.drain(..1);
-            let split = content_string.split(" ");
+            
+            // let split = content_string.split(" ");
             /*
                 !! = show all values
                 !last (same as $)
@@ -235,8 +310,8 @@ impl EventHandler for Handler {
         }
     }
 
-    fn on_ready(&self, context : Context, ready: Ready) {
-        let res = context.edit_profile(|profile| {
+    fn on_ready(&self, context : Context, _ready: Ready) {
+        let _res = context.edit_profile(|profile| {
             profile.username(&self.name)
         });
     }
