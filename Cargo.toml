@@ -1,6 +1,6 @@
 [package]
 name = "dipper"
-version = "0.3.0"
+version = "0.4.1"
 authors = ["not-inept <mason@notinept.me>"]
 
 [dependencies]
@@ -11,4 +11,5 @@ bson = "0.10.0"
 mongodb = "0.3.7"
 serde_json = "*"
 chrono = "0.4"
+typemap = "0.3.3"
 parser = { path ="./parser" }

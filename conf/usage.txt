@@ -1,0 +1,30 @@
+Using Dipper:
+Commands:
+
+    Help := !help, !h
+        Show usage data (this message!)
+
+    Watch := !watch, !
+        Arguments: <expression:ExpressionString> <threshold:PercentageFloat> <period:MinutesFloat> 
+        Be notified if the expression changes by <threshold> since the last time it was triggered, a notification is sent out to the chat.
+    
+    List := !list, !ls, !w <subject>
+        List all existing entries of the passed subject. Currently the only valid subject is "watches".
+
+
+Queries:
+
+    Coin Query := $<expression> <expression>
+
+
+Expressions:
+
+    An expression consists of coin identifiers, properties, and operators. Valid ways to refer to a coin includes:
+        <coin>
+        <coin>.<property>
+    Further, these can be analyzed with common operators:
+        +, -, /, *, ^, ()
+    
+    An expression may have no spaces, as expressions are separated by spaces. Invalid expressions will not receive a response (well most likely, they may receive an invalid response).
+
+    
