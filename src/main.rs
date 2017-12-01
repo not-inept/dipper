@@ -243,7 +243,10 @@ fn help() -> String {
     return contents;
 }
 
-fn handle_expression(exp: String, snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>) -> Vec<(String, f64)> {
+fn handle_expression(
+    exp: String,
+    snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>,
+) -> Vec<(String, f64)> {
     let mut result_vec = Vec::new();
     let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
     let vars = exp_parser.vars();
@@ -448,7 +451,11 @@ impl EventHandler for Handler {
                     msg.author.mention(),
                     msg.channel_id,
                 );
-                if let Err(why) = msg.channel_id.say(format!("Watched expression {} armed over {}%.", split[1].to_uppercase(), split[2])) {
+                if let Err(why) = msg.channel_id.say(format!(
+                    "Watched expression {} armed over {}%.",
+                    split[1].to_uppercase(),
+                    split[2]
+                )) {
                     println!("Error sending message: {:?}", why);
                 }
             } else if split[0] == "ls" || split[0] == "l" || split[0] == "list" {
@@ -477,11 +484,15 @@ impl EventHandler for Handler {
     }
 }
 
-fn check_watches(watch_list_cont : &mut HashMap<String, Vec<Watch>>, snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>) -> Vec<(bool, Vec<(String, f64)>)> {
-    let mut result : Vec<(bool, Vec<(String, f64)>)> = Vec::new();
+fn check_watches(
+    watch_list_cont: &mut HashMap<String, Vec<Watch>>,
+    snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>,
+) -> Vec<(bool, Vec<(String, f64)>)> {
+    let mut result: Vec<(bool, Vec<(String, f64)>)> = Vec::new();
     let mut watches = watch_list_cont
-                .entry(String::from("watches"))
-                .or_insert(Vec::new()).clone();
+        .entry(String::from("watches"))
+        .or_insert(Vec::new())
+        .clone();
     let mut i = 0;
     let all_watches = watches.clone();
     for w in all_watches {
@@ -495,7 +506,7 @@ fn check_watches(watch_list_cont : &mut HashMap<String, Vec<Watch>>, snapshot: H
             let my_olds = old_vals.clone();
             for (old_market, old_val) in my_olds {
                 if market == old_market {
-                    if (((val-old_val)/old_val)*100.0).abs() > w.threshold.abs() {
+                    if (((val - old_val) / old_val) * 100.0).abs() > w.threshold.abs() {
                         changed = true;
                     }
                 }
@@ -515,7 +526,14 @@ fn check_watches(watch_list_cont : &mut HashMap<String, Vec<Watch>>, snapshot: H
             for (market, val) in old_vals {
                 old_string += &format!("\n\t\t{}: {}", market, val);
             }
-            let _ = w.channel_id.say(format!("{} your {}% watched expression {} has triggered:\n\tOld:{}\n\tNew:{}", w.author, w.threshold, w.expression.to_uppercase(), old_string, new_string));
+            let _ = w.channel_id.say(format!(
+                "{} your {}% watched expression {} has triggered:\n\tOld:{}\n\tNew:{}",
+                w.author,
+                w.threshold,
+                w.expression.to_uppercase(),
+                old_string,
+                new_string
+            ));
             watches[i].values = cur_vals.clone();
         }
         result.push((changed, cur_vals.clone()));
@@ -558,7 +576,7 @@ fn main() {
     // Initilize 'Photographer' thread for caputring snapshots
     let autoshot_exchange_creds = exchange_creds.clone();
     let autoshot_db_client = db_client.clone();
-    let snapshot_frequency = time::Duration::from_millis(5000);// time::Duration::from_secs(60);
+    let snapshot_frequency = time::Duration::from_millis(5000); // time::Duration::from_secs(60);
 
 
     // Create & start Discord Client
@@ -585,8 +603,9 @@ fn main() {
                 let mut data = context_data.lock();
                 let watch_list_cont = data.get_mut::<WatchList>().unwrap();
                 let mut watches = watch_list_cont
-                            .entry(String::from("watches"))
-                            .or_insert(Vec::new()).clone();
+                    .entry(String::from("watches"))
+                    .or_insert(Vec::new())
+                    .clone();
                 let cur_result = check_watches(watch_list_cont, snapshot);
                 for i in 0..watches.len() {
                     if cur_result[i].0 {
