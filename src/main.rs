@@ -408,6 +408,14 @@ impl Handler {
             .or_insert(Vec::new());
         return entry.clone();
     }
+    pub fn remove_watch(&self, context: Context, to_remove : usize) {
+        let mut data = context.data.lock();
+        let watch_list_cont = data.get_mut::<WatchList>().unwrap();
+        let entry = watch_list_cont
+            .entry(String::from("watches"))
+            .or_insert(Vec::new());
+        entry.remove(to_remove);
+    }
     pub fn set_watch(&self, context: Context, e: String, t: String, a: String, c: ChannelId) {
         let snapshot = get_snapshot(self.ex_creds.clone());
         let v = handle_expression(e.clone(), snapshot);
@@ -459,7 +467,6 @@ impl EventHandler for Handler {
                     println!("Error sending message: {:?}", why);
                 }
             } else if split[0] == "ls" || split[0] == "l" || split[0] == "list" {
-                if split[1] == "w" || split[1] == "watch" || split[1] == "watches" {
                     let mut result_message = String::from("Current active watches:");
                     let mut i = 0;
                     let watches = self.list_watches(context);
@@ -467,6 +474,18 @@ impl EventHandler for Handler {
                         result_message += &format!("\n[{}] {} {}%", i, w.expression, w.threshold);
                         i += 1;
                     }
+                if let Err(why) = msg.channel_id.say(result_message
+                ) {
+                    println!("Error sending message: {:?}", why);
+                }
+            } else if split[0] == "rm" || split[0] == "remove" || split[0] == "r" {
+                let to_remove = split[1].parse().unwrap();
+                let watches = self.list_watches(context.clone());
+                self.remove_watch(context, to_remove);
+                let result_message = format!("Removed watch: {} {}%", watches[to_remove].expression.to_uppercase(), watches[to_remove].threshold);
+                if let Err(why) = msg.channel_id.say(result_message
+                ) {
+                    println!("Error sending message: {:?}", why);
                 }
             }
             /*
@@ -576,7 +595,7 @@ fn main() {
     // Initilize 'Photographer' thread for caputring snapshots
     let autoshot_exchange_creds = exchange_creds.clone();
     let autoshot_db_client = db_client.clone();
-    let snapshot_frequency = time::Duration::from_millis(5000); // time::Duration::from_secs(60);
+    let snapshot_frequency = time::Duration::from_millis(60000); // time::Duration::from_secs(60);
 
 
     // Create & start Discord Client
