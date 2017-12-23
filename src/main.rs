@@ -36,7 +36,8 @@ use coinnect::poloniex::api::PoloniexApi;
 
 // config
 use std::collections::HashMap;
-use config::File;
+use config::File; 
+use std::fs;
 use std::fs::File as rsFile;
 use std::io::prelude::*;
 
@@ -209,11 +210,13 @@ fn store_snapshot(
     let time : f64 = date.timestamp() as f64;
     let coin_db = db_client.db("coins");
     let snap_clone = snapshot.clone();
-    for (_, ex_data) in snap_clone {
+    for (exchange, ex_data) in snap_clone {
+        println!("{}", exchange);
         for (coin, market_data) in ex_data {
             let coll = coin_db.collection(&coin);
             for (market, data) in market_data {
                 let doc = doc! {
+                    "exchange" : exchange.clone(),
                     "time" : time,
                     "coin" : coin.clone(),
                     "market" : market,
@@ -254,7 +257,9 @@ fn time_to_seconds(time_str_ : String) -> i64 {
 fn fetch_relative_range(
     db_client: mongodb::Client,
     relative_time : String,
-    coin : String) {
+    coin : String) ->
+HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
+{
 
     let date = Local::now();
     let time : i64 = date.timestamp();
@@ -268,10 +273,14 @@ fn fetch_relative_range(
     let coll = coin_db.collection(&coin);
     let mut cursor = coll.find(Some(doc.clone()), None)
         .ok().expect("Failed to execute find.");
-    while let Some(Ok(result)) = cursor.next() {
-        let market = result.get_str("market").unwrap();
-        let time = result.get_str("time").unwrap();
 
+    let mut time_snapshots : HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > > = HashMap::new();
+    while let Some(Ok(result)) = cursor.next() {
+        let exchange = result.get_str("exchange").unwrap_or("poloniex");
+        let market = result.get_str("market").unwrap();
+        let time = result.get_f64("time").unwrap();
+        // I didn't include this initially, data from the first few weeks doesn't have an exchange option
+        // but it was exclusively from poloniex
         let market_data = MarketData {
             last: result.get_f64("last").unwrap(),
             lowest_ask: result.get_f64("lowest_ask").unwrap(),
@@ -283,15 +292,12 @@ fn fetch_relative_range(
             high24hr: result.get_f64("high24hr").unwrap(),
             low24hr: result.get_f64("low24hr").unwrap(),
         };
+        let time_entry = time_snapshots.entry(time.clone() as i64).or_insert(HashMap::new());
+        let exchange_entry = time_entry.entry(String::from(exchange)).or_insert(HashMap::new());
+        let coin_entry = exchange_entry.entry(coin.clone()).or_insert(HashMap::new());
+        coin_entry.insert(String::from(market), market_data);
     }
-}
-
-fn preparse_expression(exp : String) {
-
-}
-
-fn parse_variables() {
-
+    return time_snapshots;
 }
 
 fn help() -> String {
@@ -307,7 +313,7 @@ fn handle_expression(
 ) -> Vec<(String, f64)> {
 
     // Preparse expression for translations (@)
-    let mut exp_split : Vec<&str> = exp_raw.split("@").collect();
+    let exp_split : Vec<&str> = exp_raw.split("@").collect();
     let exp = exp_split[0];
     let mut trans_targets = Vec::new();
     if exp_split.len() == 2 {
@@ -323,13 +329,8 @@ fn handle_expression(
 
     // pull out properties, if any, mark them in coin_vars
     for v in copy_vars {
-
-        let mut v_clone = v.clone();
-
-
         let v_clone = v.clone();
         let var_split: Vec<&str> = v_clone.split(".").collect();
-        println!("{:?}", var_split);
         let coin = String::from(var_split[0]).clone();
         let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
         if var_split.len() == 1 {
@@ -432,18 +433,19 @@ impl Key for WatchList {
     type Value = HashMap<String, Vec<Watch>>;
 }
 // Discord API handler and helpers
-#[derive(Debug)]
 struct Handler {
     name: String,
     ex_creds: Vec<ExCreds>,
-    // watches: Vec<Watch>, //db_client : Client
+    db_client: Client
+    // watches: Vec<Watch>,
 }
 impl Handler {
-    pub fn new(name: String, _db_client: Client, ex_creds: Vec<ExCreds>) -> Handler {
+    pub fn new(name: String, db_client: Client, ex_creds: Vec<ExCreds>) -> Handler {
         return Handler {
             name: name,
             ex_creds: ex_creds,
-            // watches: Vec::new(), //db_client: db_client.clone()
+            db_client: db_client.clone()
+            // watches: Vec::new()
         };
     }
     pub fn list_watches(&self, context: Context) -> Vec<Watch> {
@@ -485,6 +487,7 @@ impl EventHandler for Handler {
     fn on_message(&self, context: Context, msg: serenity::model::Message) {
         let content_str: &str = &msg.content;
         let mut content_string: String = msg.content.clone();
+        // shorthand for !evalute expression
         if content_str.starts_with("$") {
             content_string.drain(..1);
             handle_expressions(content_string, self.ex_creds.clone(), msg.channel_id);
@@ -535,8 +538,20 @@ impl EventHandler for Handler {
                 }
             } else if split[0] == "graph" || split[0] == "g" {
                 let to_graph : String = split[1].parse().unwrap();
-                let x = [0u32, 1, 2];
-                let y = [3u32, 4, 5];
+
+                // get historic values for x and y
+                // create expression parser, get vars
+                // TODO: Split out and loop through expressions
+                // TODO: Loop through coin vars, fetch ranges for each coin
+                // TODO: Combine entries of time to build a complete snapshot per time
+                let time_snapshots = fetch_relative_range(self.db_client.clone(), to_graph, coin);
+                
+                // TODO: Loop through time snapshots 
+                // TODO: Populate X with time, Y with result of handle_expression
+                let mut x = Vec::new();
+                let mut y = Vec::new();
+                
+
                 let mut fg = Figure::new();
                 fg.axes2d()
                 .lines(&x, &y, &[Caption("A line"), Color("black")]);
@@ -548,9 +563,11 @@ impl EventHandler for Handler {
 
                 fg.set_terminal("pngcairo", paths[0].clone());
                 fg.show();
+        
                 if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 }
+                let _ = fs::remove_file(path.clone()).unwrap();
             }
             /*
                 !! = show all values
