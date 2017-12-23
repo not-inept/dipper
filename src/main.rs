@@ -286,7 +286,11 @@ fn fetch_relative_range(
     }
 }
 
-fn evaluate_variables() {
+fn preparse_expression(exp : String) {
+
+}
+
+fn parse_variables() {
 
 }
 
@@ -301,6 +305,9 @@ fn handle_expression(
     exp: String,
     snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>,
 ) -> Vec<(String, f64)> {
+    // Preparse expression for translations (@)
+    // TODO 1
+
     let mut result_vec = Vec::new();
     let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
     let vars = exp_parser.vars();
@@ -308,11 +315,11 @@ fn handle_expression(
     let mut coin_vars = HashMap::new();
     let copy_vars = vars.clone();
 
-    // Created marked coin variable objects for later binding
-    // Marks property to get value from and if
+    // pull out properties, if any, mark them in coin_vars
     for v in copy_vars {
 
         let mut v_clone = v.clone();
+
 
         let v_clone = v.clone();
         let var_split: Vec<&str> = v_clone.split(".").collect();
@@ -329,7 +336,6 @@ fn handle_expression(
                 String::from(var_split[1]),
             ));
         }
-        // store trans metadata before pushing
     }
     for (_, exchange_data) in &snapshot {
         let mut coin_vals = HashMap::new();
@@ -364,6 +370,8 @@ fn handle_expression(
             let result = exp_parser.eval();
             result_vec.push((market.clone(), result));
         }
+        // APPLY TRANSLATIONS WHERE POSSIBLE
+        // TODO 2
     }
     return result_vec;
 }
@@ -375,6 +383,7 @@ fn handle_expressions(content_string: String, ex_creds: Vec<ExCreds>, channel_id
     let mut result_message = String::new();
     for exp in split {
         // individual expression handling
+        
         let results = handle_expression(String::from(exp), snapshot.clone());
         if i > 0 { result_message += "\n"; }
         result_message += &format!("{}:", exp.to_uppercase());
@@ -635,7 +644,7 @@ fn main() {
     let discord_exchange_creds = exchange_creds.clone();
     let discord_db_client = db_client.clone();
     let handler = Handler::new(
-        String::from("Dipper"),
+        settings["discord"]["user_id"].clone(),
         discord_db_client,
         discord_exchange_creds,
     );
