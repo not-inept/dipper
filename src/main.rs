@@ -302,11 +302,17 @@ fn help() -> String {
 }
 
 fn handle_expression(
-    exp: String,
+    exp_raw: String,
     snapshot: HashMap<String, HashMap<String, HashMap<String, MarketData>>>,
 ) -> Vec<(String, f64)> {
+
     // Preparse expression for translations (@)
-    // TODO 1
+    let mut exp_split : Vec<&str> = exp_raw.split("@").collect();
+    let exp = exp_split[0];
+    let mut trans_targets = Vec::new();
+    if exp_split.len() == 2 {
+        trans_targets = exp_split[1].split(",").collect();
+    }
 
     let mut result_vec = Vec::new();
     let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
@@ -369,9 +375,25 @@ fn handle_expression(
             }
             let result = exp_parser.eval();
             result_vec.push((market.clone(), result));
+
+            // Attempt translating through this market
+            let temp_targets = trans_targets.clone();
+            for target in temp_targets {
+                match exchange_data.get(&market.to_uppercase()) {
+                    Some(market_markets) => {
+                        match market_markets.get(&target.to_uppercase()) {
+                            Some(data) => {
+                                result_vec.push((
+                                    format!("{}->{}", market.clone().to_uppercase(), target.clone().to_uppercase()),
+                                    result * data.last));
+                            },
+                            None => {}
+                        }
+                    },
+                    None => {}
+                }
+            }
         }
-        // APPLY TRANSLATIONS WHERE POSSIBLE
-        // TODO 2
     }
     return result_vec;
 }
