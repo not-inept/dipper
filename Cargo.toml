@@ -13,3 +13,4 @@ serde_json = "*"
 chrono = "0.4"
 typemap = "0.3.3"
 parser = { path ="./parser" }
+gnuplot = "0.0.24"

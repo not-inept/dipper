@@ -1,4 +1,3 @@
-// #[macro_use]
 #[macro_use(bson, doc)]
 extern crate bson;
 extern crate chrono;
@@ -8,6 +7,7 @@ extern crate mongodb;
 extern crate serde_json;
 extern crate serenity;
 extern crate typemap;
+extern crate gnuplot;
 
 // Discord
 use serenity::client::Client as SerenityClient;
@@ -21,7 +21,7 @@ use typemap::Key;
 // Expression Parsing
 extern crate parser;
 use std::collections::HashSet;
-
+use gnuplot::{Figure, Caption, Color};
 // Snapshot 'Photographer' Thread
 use std::{thread, time};
 
@@ -206,7 +206,7 @@ fn store_snapshot(
 ) -> HashMap<String, HashMap<String, HashMap<String, MarketData>>> {
     let snapshot = get_snapshot(exchange_creds);
     let date = Local::now();
-    let time = date.timestamp();
+    let time : f64 = date.timestamp() as f64;
     let coin_db = db_client.db("coins");
     let snap_clone = snapshot.clone();
     for (_, ex_data) in snap_clone {
@@ -235,6 +235,60 @@ fn store_snapshot(
     }
     return snapshot;
 }
+fn time_to_seconds(time_str_ : String) -> i64 {
+    let mut time_str = time_str_.clone();
+    let mut factor : i64 = 0;
+    if time_str.ends_with("s") {
+        factor = 1;
+    } else if time_str.ends_with("m") {
+        factor = 60;
+    } else if time_str.ends_with("h") {
+        factor = 360;
+    }
+    time_str.pop();
+    let time_val : i64 = time_str.parse().unwrap();
+    return time_val*factor;
+}
+
+// returns map(market, map(time, market_data))
+fn fetch_relative_range(
+    db_client: mongodb::Client,
+    relative_time : String,
+    coin : String) {
+
+    let date = Local::now();
+    let time : i64 = date.timestamp();
+
+
+    let min_val = time - time_to_seconds(relative_time);
+    let max_val = time;
+    let doc = doc! { "value" => { "$gt" => min_val, "$lte" => max_val } };
+    
+    let coin_db = db_client.db("coins");
+    let coll = coin_db.collection(&coin);
+    let mut cursor = coll.find(Some(doc.clone()), None)
+        .ok().expect("Failed to execute find.");
+    while let Some(Ok(result)) = cursor.next() {
+        let market = result.get_str("market").unwrap();
+        let time = result.get_str("time").unwrap();
+
+        let market_data = MarketData {
+            last: result.get_f64("last").unwrap(),
+            lowest_ask: result.get_f64("lowest_ask").unwrap(),
+            highest_bid: result.get_f64("highest_bid").unwrap(),
+            percent_change: result.get_f64("percent_change").unwrap(),
+            base_volume: result.get_f64("base_volume").unwrap(),
+            quote_volume: result.get_f64("quote_volume").unwrap(),
+            is_frozen: result.get_f64("is_frozen").unwrap() as u64,
+            high24hr: result.get_f64("high24hr").unwrap(),
+            low24hr: result.get_f64("low24hr").unwrap(),
+        };
+    }
+}
+
+fn evaluate_variables() {
+
+}
 
 fn help() -> String {
     let mut file = rsFile::open("./conf/usage.txt").unwrap();
@@ -254,7 +308,12 @@ fn handle_expression(
     let mut coin_vars = HashMap::new();
     let copy_vars = vars.clone();
 
+    // Created marked coin variable objects for later binding
+    // Marks property to get value from and if
     for v in copy_vars {
+
+        let mut v_clone = v.clone();
+
         let v_clone = v.clone();
         let var_split: Vec<&str> = v_clone.split(".").collect();
         println!("{:?}", var_split);
@@ -270,6 +329,7 @@ fn handle_expression(
                 String::from(var_split[1]),
             ));
         }
+        // store trans metadata before pushing
     }
     for (_, exchange_data) in &snapshot {
         let mut coin_vals = HashMap::new();
@@ -282,6 +342,7 @@ fn handle_expression(
                 for (market, _) in coin_data {
                     my_markets.insert(market);
                 }
+                // translation happens here!
                 market_sets.push(my_markets);
             }
         }
@@ -310,69 +371,23 @@ fn handle_expression(
 fn handle_expressions(content_string: String, ex_creds: Vec<ExCreds>, channel_id: ChannelId) {
     let snapshot = get_snapshot(ex_creds.clone());
     let split = content_string.split(" ");
+    let mut i = 0;
+    let mut result_message = String::new();
     for exp in split {
-        let mut exp_parser = parser::Parser::new(String::from(exp).to_uppercase()).unwrap();
-        let vars = exp_parser.vars();
-        // get coin values from vars (may be coin.property)
-        let mut coin_vars = HashMap::new();
-        let mut copy_vars = vars.clone();
-
-        for v in copy_vars {
-            let v_clone = v.clone();
-            let var_split: Vec<&str> = v_clone.split(".").collect();
-            println!("{:?}", var_split);
-            let coin = String::from(var_split[0]).clone();
-            let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
-            if var_split.len() == 1 {
-                this_coin_vec.push(MarketProperty::new(v.clone(), coin, String::from("last")));
-            } else if var_split.len() == 2 {
-                println!("Found two!");
-                this_coin_vec.push(MarketProperty::new(
-                    v.clone(),
-                    coin,
-                    String::from(var_split[1]),
-                ));
-            }
+        // individual expression handling
+        let results = handle_expression(String::from(exp), snapshot.clone());
+        if i > 0 { result_message += "\n"; }
+        result_message += &format!("{}:", exp.to_uppercase());
+        for (market, result) in results {
+            result_message += &format!("\n\t{}: {}", market, result);
         }
-        for (_, exchange_data) in &snapshot {
-            let mut coin_vals = HashMap::new();
-            let mut market_sets = Vec::new();
-            for (coin, coin_data) in exchange_data {
-                if coin_vars.contains_key(coin) {
-                    println!("Coin was var: {}", coin);
-                    coin_vals.insert(coin.clone(), coin_data);
-                    let mut my_markets = HashSet::new();
-                    for (market, _) in coin_data {
-                        my_markets.insert(market);
-                    }
-                    market_sets.push(my_markets);
-                }
-            }
-            let mut valid_markets = market_sets.pop().unwrap();
-            for market_set in market_sets {
-                for market in valid_markets.clone() {
-                    if !market_set.contains(market) {
-                        valid_markets.remove(market);
-                    }
-                }
-            }
-            let mut result_message = format!("{}:", exp.to_uppercase());
-            for market in valid_markets {
-                for (coin, coin_datum) in &coin_vals {
-                    let data = coin_datum.get(market).unwrap();
-                    for coin_var in &coin_vars[coin] {
-                        exp_parser.bind(coin_var.var(), coin_var.val(data));
-                    }
-                }
-                let result = exp_parser.eval();
-                result_message += &format!("\n\t{}: {}", market, result);
-            }
-            if let Err(why) = channel_id.say(result_message) {
-                println!("Error sending message: {:?}", why);
-            }
-        }
+        i+=1;
+    }
+    if let Err(why) = channel_id.say(result_message) {
+        println!("Error sending message: {:?}", why);
     }
 }
+
 #[derive(Debug, Clone)]
 struct Watch {
     channel_id: ChannelId,
@@ -485,6 +500,24 @@ impl EventHandler for Handler {
                 let result_message = format!("Removed watch: {} {}%", watches[to_remove].expression.to_uppercase(), watches[to_remove].threshold);
                 if let Err(why) = msg.channel_id.say(result_message
                 ) {
+                    println!("Error sending message: {:?}", why);
+                }
+            } else if split[0] == "graph" || split[0] == "g" {
+                let to_graph : String = split[1].parse().unwrap();
+                let x = [0u32, 1, 2];
+                let y = [3u32, 4, 5];
+                let mut fg = Figure::new();
+                fg.axes2d()
+                .lines(&x, &y, &[Caption("A line"), Color("black")]);
+
+                let path : String = format!("./data/graph_{}.png", msg.id.0);
+                println!("{}", path);
+
+                let paths = vec![path.as_str()];
+
+                fg.set_terminal("pngcairo", paths[0].clone());
+                fg.show();
+                if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 }
             }
