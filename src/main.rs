@@ -211,7 +211,6 @@ fn store_snapshot(
     let coin_db = db_client.db("coins");
     let snap_clone = snapshot.clone();
     for (exchange, ex_data) in snap_clone {
-        println!("{}", exchange);
         for (coin, market_data) in ex_data {
             let coll = coin_db.collection(&coin);
             for (market, data) in market_data {
@@ -537,37 +536,80 @@ impl EventHandler for Handler {
                     println!("Error sending message: {:?}", why);
                 }
             } else if split[0] == "graph" || split[0] == "g" {
-                let to_graph : String = split[1].parse().unwrap();
+                let to_graph : String = String::from(split[1]);
 
                 // get historic values for x and y
                 // create expression parser, get vars
                 // TODO: Split out and loop through expressions
-                // TODO: Loop through coin vars, fetch ranges for each coin
-                // TODO: Combine entries of time to build a complete snapshot per time
-                let time_snapshots = fetch_relative_range(self.db_client.clone(), to_graph, coin);
-                
-                // TODO: Loop through time snapshots 
-                // TODO: Populate X with time, Y with result of handle_expression
-                let mut x = Vec::new();
-                let mut y = Vec::new();
-                
+                let mut i = 2;
+                while i < split.len() {
+                    let exp : String = String::from(split[i]).to_uppercase();
+                    i += 1;
 
-                let mut fg = Figure::new();
-                fg.axes2d()
-                .lines(&x, &y, &[Caption("A line"), Color("black")]);
+                    // This is really dumb, I should be able to do this better!
+                    let exp_parser = parser::Parser::new(exp.clone()).unwrap();
+                    let vars = exp_parser.vars();
+                    // get coin values from vars (may be coin.property)
+                    let mut coin_vars = HashMap::new();
+                    let copy_vars = vars.clone();
+                    // pull out properties, if any, mark them in coin_vars
+                    for v in copy_vars {
+                        let v_clone = v.clone();
+                        let var_split: Vec<&str> = v_clone.split(".").collect();
+                        let coin = String::from(var_split[0]).clone();
+                        let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
+                        if var_split.len() == 1 {
+                            this_coin_vec.push(MarketProperty::new(v.clone(), coin, String::from("last")));
+                        } else if var_split.len() == 2 {
+                            println!("Found two!");
+                            this_coin_vec.push(MarketProperty::new(
+                                v.clone(),
+                                coin,
+                                String::from(var_split[1]),
+                            ));
+                        }
+                    }
+                    // Loop through coin vars, fetch ranges for each coin
+                    // Combine entries of time to build a complete snapshot per time
+                    let mut time_snapshots = HashMap::new();
+                    for (coin, _) in coin_vars {
+                        let coin_time_snapshots = fetch_relative_range(self.db_client.clone(), to_graph.clone(), coin);
+                        time_snapshots.extend(coin_time_snapshots);
+                    }
 
-                let path : String = format!("./data/graph_{}.png", msg.id.0);
-                println!("{}", path);
+                    let mut x : Vec<f64> = Vec::new();
+                    let mut y : Vec<f64> = Vec::new();
+                    // Loop through time snapshots 
+                    let mut times : Vec<&i64> = time_snapshots.keys().collect();
+                    times.sort();
+                    
+                    for time in times {
+                        let snapshot = time_snapshots.get(time).unwrap().clone();
+                        let res = handle_expression(exp.clone(), snapshot);
+                        x.push(*time as f64);
+                        y.push(res[0].1)
+                    }
+                    println!("X: {:?}\n\nY: {:?}", x, y);
+                    // TODO: Populate X with time, Y with result of handle_expression
 
-                let paths = vec![path.as_str()];
 
-                fg.set_terminal("pngcairo", paths[0].clone());
-                fg.show();
-        
-                if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
-                    println!("Error sending message: {:?}", why);
+                    let mut fg = Figure::new();
+                    fg.axes2d()
+                    .lines(&x, &y, &[Caption("A line"), Color("black")]);
+
+                    let path : String = format!("./data/graph_{}.png", msg.id.0);
+                    println!("{}", path);
+
+                    let paths = vec![path.as_str()];
+
+                    fg.set_terminal("pngcairo", paths[0].clone());
+                    fg.show();
+            
+                    if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
+                        println!("Error sending message: {:?}", why);
+                    }
+                    // let _ = fs::remove_file(path.clone()).unwrap();
                 }
-                let _ = fs::remove_file(path.clone()).unwrap();
             }
             /*
                 !! = show all values
