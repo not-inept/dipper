@@ -245,7 +245,9 @@ fn time_to_seconds(time_str_ : String) -> i64 {
     } else if time_str.ends_with("m") {
         factor = 60;
     } else if time_str.ends_with("h") {
-        factor = 360;
+        factor = 3600;
+    } else if time_str.ends_with("d") {
+        factor = 86400;
     }
     time_str.pop();
     let time_val : i64 = time_str.parse().unwrap();
