@@ -279,7 +279,6 @@ HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
     let mut time_snapshots : HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > > = HashMap::new();
     while let Some(Ok(result)) = cursor.next() {
         println!("Found result :D");
-        println!("{:?}", result);
         let exchange = result.get_str("exchange").unwrap_or("poloniex");
         let market = result.get_str("market").unwrap();
         let time = result.get_f64("time").unwrap();
@@ -302,7 +301,6 @@ HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
         let coin_entry = exchange_entry.entry(coin.clone()).or_insert(HashMap::new());
         coin_entry.insert(String::from(market), market_data);
     }
-    println!("{:?}", time_snapshots);
     return time_snapshots;
 }
 
