@@ -266,20 +266,24 @@ HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
 
     let min_val = time - time_to_seconds(relative_time);
     let max_val = time;
-    let doc = doc! { "value" => { "$gt" => min_val, "$lte" => max_val } };
+    let doc = doc! { "time" => { "$gt" => min_val, "$lte" => max_val } };
     
     let coin_db = db_client.db("coins");
+    println!("Seeking results for {}.\nLooking between:\t{}\t{}", coin, min_val, max_val);
     let coll = coin_db.collection(&coin);
     let mut cursor = coll.find(Some(doc.clone()), None)
         .ok().expect("Failed to execute find.");
 
     let mut time_snapshots : HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > > = HashMap::new();
     while let Some(Ok(result)) = cursor.next() {
+        println!("Found result :D");
+        println!("{:?}", result);
         let exchange = result.get_str("exchange").unwrap_or("poloniex");
         let market = result.get_str("market").unwrap();
         let time = result.get_f64("time").unwrap();
         // I didn't include this initially, data from the first few weeks doesn't have an exchange option
         // but it was exclusively from poloniex
+
         let market_data = MarketData {
             last: result.get_f64("last").unwrap(),
             lowest_ask: result.get_f64("lowest_ask").unwrap(),
@@ -287,7 +291,7 @@ HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
             percent_change: result.get_f64("percent_change").unwrap(),
             base_volume: result.get_f64("base_volume").unwrap(),
             quote_volume: result.get_f64("quote_volume").unwrap(),
-            is_frozen: result.get_f64("is_frozen").unwrap() as u64,
+            is_frozen: result.get_i64("is_frozen").unwrap() as u64,
             high24hr: result.get_f64("high24hr").unwrap(),
             low24hr: result.get_f64("low24hr").unwrap(),
         };
@@ -296,6 +300,7 @@ HashMap<i64, HashMap<String, HashMap<String, HashMap<String, MarketData> > > >
         let coin_entry = exchange_entry.entry(coin.clone()).or_insert(HashMap::new());
         coin_entry.insert(String::from(market), market_data);
     }
+    println!("{:?}", time_snapshots);
     return time_snapshots;
 }
 
@@ -542,6 +547,10 @@ impl EventHandler for Handler {
                 // create expression parser, get vars
                 // TODO: Split out and loop through expressions
                 let mut i = 2;
+                println!("Split: {:?}", split);
+                
+                let mut fg = Figure::new();
+
                 while i < split.len() {
                     let exp : String = String::from(split[i]).to_uppercase();
                     i += 1;
@@ -583,6 +592,7 @@ impl EventHandler for Handler {
                     let mut times : Vec<&i64> = time_snapshots.keys().collect();
                     times.sort();
                     
+                    // Populate X with time, Y with result of handle_expression
                     for time in times {
                         let snapshot = time_snapshots.get(time).unwrap().clone();
                         let res = handle_expression(exp.clone(), snapshot);
@@ -590,34 +600,26 @@ impl EventHandler for Handler {
                         y.push(res[0].1)
                     }
                     println!("X: {:?}\n\nY: {:?}", x, y);
-                    // TODO: Populate X with time, Y with result of handle_expression
-
-
-                    let mut fg = Figure::new();
                     fg.axes2d()
-                    .lines(&x, &y, &[Caption("A line"), Color("black")]);
+                        .lines(&x, &y, &[Caption("A line"), Color("black")]);
 
-                    let path : String = format!("./data/graph_{}.png", msg.id.0);
-                    println!("{}", path);
-
-                    let paths = vec![path.as_str()];
-
-                    fg.set_terminal("pngcairo", paths[0].clone());
-                    fg.show();
-            
-                    if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
-                        println!("Error sending message: {:?}", why);
-                    }
-                    // let _ = fs::remove_file(path.clone()).unwrap();
                 }
+ 
+                let path : String = format!("./data/graph_{}.png", msg.id.0);
+                println!("{}", path);
+
+                let paths = vec![path.as_str()];
+
+                fg.set_terminal("pngcairo", paths[0].clone());
+                fg.show();
+        
+                if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
+                    println!("Error sending message: {:?}", why);
+                } else {
+                    let _ = fs::remove_file(path.clone()).unwrap();
+                }
+
             }
-            /*
-                !! = show all values
-                !last (same as $)
-                !lowest_ask exp...
-                !highest_bid exp...
-                
-            */
         }
     }
 
