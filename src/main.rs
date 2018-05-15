@@ -626,7 +626,7 @@ impl EventHandler for Handler {
                 if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 } else {
-                    let _ = fs::remove_file(path.clone()).unwrap();
+                    // let _ = fs::remove_file(path.clone()).unwrap();
                 }
 
             }
