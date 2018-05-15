@@ -178,9 +178,15 @@ fn get_snapshot(
     for ex in exchanges {
         match ex {
             ExApi::Poloniex(mut p) => {
-                let ticker = p.return_ticker().unwrap();
-                let polo_data = parse_polo_ticker(ticker);
-                ex_data.insert(String::from("poloniex"), polo_data);
+                match p.return_ticker() {
+                    Ok(ticker) => {
+                        let polo_data = parse_polo_ticker(ticker);
+                        ex_data.insert(String::from("poloniex"), polo_data);
+                    },
+                    Err(why) => {
+                        println!("Problem getting ticker: {:?}", why);
+                    }
+                }
             }
         }
     }
