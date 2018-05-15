@@ -623,6 +623,7 @@ impl EventHandler for Handler {
                 fg.set_terminal("pngcairo", paths[0].clone());
                 fg.show();
                 fg.echo_to_file(paths[0].clone());
+                thread::sleep(time::Duration::from_secs(1));
                 if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 } else {
