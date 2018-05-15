@@ -41,6 +41,9 @@ use std::fs;
 use std::fs::File as rsFile;
 use std::io::prelude::*;
 
+// filesystem path for file creation
+use std::env;
+
 // Exchange Structs
 #[derive(Debug)]
 enum ExApi {
@@ -610,15 +613,16 @@ impl EventHandler for Handler {
                         .lines(&x, &y, &[Caption("A line"), Color("black")]);
 
                 }
- 
-                let path : String = format!("./data/graph_{}.png", msg.id.0);
+                let path = env::current_dir().unwrap();
+                println!("The current directory is {}", path.display());
+                let path : String = format!("{}/data/graph_{}.png", path.display(), msg.id.0);
                 println!("{}", path);
 
                 let paths = vec![path.as_str()];
 
                 fg.set_terminal("pngcairo", paths[0].clone());
                 fg.show();
-        
+                fg.echo_to_file(paths[0].clone());
                 if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 } else {
