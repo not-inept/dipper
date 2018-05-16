@@ -593,18 +593,25 @@ impl EventHandler for Handler {
                     // pull out properties, if any, mark them in coin_vars
                     for v in copy_vars {
                         let v_clone = v.clone();
-                        let var_split: Vec<&str> = v_clone.split(".").collect();
+                        let translate_split : Vec<&str> = v_clone.split("@").collect();
+
+                        let var_split: Vec<&str> = translate_split[0].split(".").collect();
                         let coin = String::from(var_split[0]).clone();
-                        let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
-                        if var_split.len() == 1 {
-                            this_coin_vec.push(MarketProperty::new(v.clone(), coin, String::from("last")));
-                        } else if var_split.len() == 2 {
-                            println!("Found two!");
-                            this_coin_vec.push(MarketProperty::new(
-                                v.clone(),
-                                coin,
-                                String::from(var_split[1]),
-                            ));
+
+                        let mut property : String = String::from("last");
+
+                        if var_split.len() == 2 {
+                            property = String::from(var_split[1]);
+                        }
+                        
+                        {
+                            let this_coin_vec = coin_vars.entry(coin.clone()).or_insert(Vec::new());
+                            this_coin_vec.push(MarketProperty::new(v.clone(), coin, property.clone()));
+                        }
+                        if translate_split.len() == 2 {
+                            let coin2 = String::from(translate_split[1]).clone();
+                            let this_coin_vec2 = coin_vars.entry(coin2.clone()).or_insert(Vec::new());
+                            this_coin_vec2.push(MarketProperty::new(v.clone(), coin2, property.clone()));
                         }
                     }
                     // Loop through coin vars, fetch ranges for each coin

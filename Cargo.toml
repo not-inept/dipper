@@ -1,6 +1,6 @@
 [package]
 name = "dipper"
-version = "0.4.3"
+version = "0.4.4"
 authors = ["not-inept <mason@notinept.me>"]
 
 [dependencies]
