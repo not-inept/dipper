@@ -8,6 +8,7 @@ extern crate serde_json;
 extern crate serenity;
 extern crate typemap;
 extern crate gnuplot;
+extern crate rand;
 
 // Discord
 use serenity::client::Client as SerenityClient;
@@ -21,7 +22,7 @@ use typemap::Key;
 // Expression Parsing
 extern crate parser;
 use std::collections::HashSet;
-use gnuplot::{Figure, Caption, Color};
+
 // Snapshot 'Photographer' Thread
 use std::{thread, time};
 
@@ -37,12 +38,13 @@ use coinnect::poloniex::api::PoloniexApi;
 // config
 use std::collections::HashMap;
 use config::File; 
-use std::fs;
 use std::fs::File as rsFile;
 use std::io::prelude::*;
 
-// filesystem path for file creation
+// graph production
 use std::env;
+use gnuplot::{Figure, Caption, Color};
+use rand::{Rng, thread_rng};
 
 // Exchange Structs
 #[derive(Debug)]
@@ -257,6 +259,8 @@ fn time_to_seconds(time_str_ : String) -> i64 {
         factor = 3600;
     } else if time_str.ends_with("d") {
         factor = 86400;
+    } else if time_str.ends_with("y") {
+        factor = 31536000;
     }
     time_str.pop();
     let time_val : i64 = time_str.parse().unwrap();
@@ -559,7 +563,23 @@ impl EventHandler for Handler {
                 println!("Split: {:?}", split);
                 
                 let mut fg = Figure::new();
-
+                
+                let mut colors = vec![
+                    "#FF8C00",
+                    "#9932CC",
+                    "#8B0000",
+                    "#E9967A",
+                    "#8FBC8F",
+                    "#483D8B",
+                    "#2F4F4F",
+                    "#00CED1",
+                    "#FF1493",
+                    "#00BFFF",
+                    "#FF00FF",
+                    "#FFFFFF",
+                    "#000000"
+                ];
+                thread_rng().shuffle(&mut colors);
                 while i < split.len() {
                     let exp : String = String::from(split[i]).to_uppercase();
                     i += 1;
@@ -597,21 +617,27 @@ impl EventHandler for Handler {
 
                     let mut x : Vec<f64> = Vec::new();
                     let mut y : Vec<f64> = Vec::new();
-                    // Loop through time snapshots 
+                    // Loop through time snapshots
                     let mut times : Vec<&i64> = time_snapshots.keys().collect();
                     times.sort();
-                    
-                    // Populate X with time, Y with result of handle_expression
-                    for time in times {
-                        let snapshot = time_snapshots.get(time).unwrap().clone();
-                        let res = handle_expression(exp.clone(), snapshot);
-                        x.push(*time as f64);
-                        y.push(res[0].1)
+                    if times.len() > 0 {
+                        // Populate X with time, Y with result of handle_expression
+                        for time in times {
+                            let snapshot = time_snapshots.get(time).unwrap().clone();
+                            let res = handle_expression(exp.clone(), snapshot);
+                            x.push(*time as f64);
+                            y.push(res[0].1)
+                        }
+                        println!("X: {:?}\n\nY: {:?}", x, y);
+                        fg.axes2d()
+                            .lines(&x, &y, &[Caption(&exp.clone()), Color(colors[i % colors.len()])]);
+                    } else {
+                        println!("No data in requested time range.");
+                        if let Err(why) = msg.channel_id.say("No data in requested time range.") {
+                            println!("Error sending message: {:?}", why);
+                        }
+                        return;
                     }
-                    println!("X: {:?}\n\nY: {:?}", x, y);
-                    fg.axes2d()
-                        .lines(&x, &y, &[Caption("A line"), Color("black")]);
-
                 }
                 let path = env::current_dir().unwrap();
                 println!("The current directory is {}", path.display());
@@ -623,7 +649,7 @@ impl EventHandler for Handler {
                 fg.set_terminal("pngcairo", paths[0].clone());
                 fg.show();
                 fg.echo_to_file(paths[0].clone());
-                thread::sleep(time::Duration::from_secs(1));
+                thread::sleep(time::Duration::from_millis(250));
                 if let Err(why) = msg.channel_id.send_files(paths, |m| m.content("Your Graph")) {
                     println!("Error sending message: {:?}", why);
                 } else {
