@@ -1,3 +1,6 @@
+# Dipper
+Dipper is a discord bot for checking and monitoring cryptocurrencies. 
+
 # Usage
 Before using Dipper please install all dependencies, including:
 * MongoDB
